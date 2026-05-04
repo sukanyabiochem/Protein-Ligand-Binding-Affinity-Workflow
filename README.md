@@ -11,15 +11,9 @@
 #check installation
 vina --help
 #two other package for file conversion from pdb to pdbqt
-conda install -c conda-forge openbabel
-conda install -c conda-forge meeko
+1. conda install -c conda-forge openbabel
+2. conda install -c conda-forge meeko
 
-
-##install ImageMagick for convert command and Convert PNG → GIF
-#sudo apt update
-sudo apt install imagemagick
-convert -delay 5 -loop 0 frames/frame*.png animation.gif
-convert -delay 10 frames/frame*.png animation.gif
 
 ##AUTODOCK
 #split the 34 ligand from one file into different##
