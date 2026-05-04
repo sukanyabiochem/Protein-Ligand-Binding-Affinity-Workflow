@@ -46,7 +46,9 @@ autogrid4 -p FVIIa_receptor.gpf -l FVIIa_receptor.glg
 ## Running Atuodoc using Autodock4 forcefield ##
 
 vina  --ligand ligand_1.pdbqt --maps FVIIa_receptor --scoring ad4 --exhaustiveness 32 --out output/FVIIa_ligand_ad4_out.pdbqt
+
 ##movie in pymol
+
 ##create folder in pymol using command:
 1. import os
 2. os.makedirs("frames", exist_ok=True)
