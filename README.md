@@ -2,11 +2,11 @@
 
 
 ## create a conda enviorment for Autodoc ##
-conda create -n vina python=3.10
-conda activate vina
-conda config --env --add channels conda-forge
-conda install -c conda-forge numpy swig boost-cpp libboost sphinx sphinx_rtd_theme
-conda install -c conda-forge vina
+1. conda create -n vina python=3.10
+2. conda activate vina
+3. conda config --env --add channels conda-forge
+4. conda install -c conda-forge numpy swig boost-cpp libboost sphinx sphinx_rtd_theme
+5. conda install -c conda-forge vina
 
 #check installation
 vina --help
