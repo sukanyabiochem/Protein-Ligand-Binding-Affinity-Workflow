@@ -39,10 +39,10 @@ vmd ligand_1.mol2
 mkdir output
 
 ## Prepare the pdbqt file for the Protein ##
-mk_prepare_receptor.py -i FVIIa.pdb -o FVIIa_receptor -p -v -g --box_size 50 50 50 --box_center 23.768259048461914 16.592430114746094 12.018509864807129
+mk_prepare_receptor.py -i Protein.pdb -o Protein_receptor -p -v -g --box_size 50 50 50 --box_center 23.768259048461914 16.592430114746094 12.018509864807129
 
 ## creating the map file ##
-autogrid4 -p FVIIa_receptor.gpf -l FVIIa_receptor.glg
+autogrid4 -p Protein_receptor.gpf -l Protein_receptor.glg
 
 ## Running Atuodoc using Autodock4 forcefield ##
 
