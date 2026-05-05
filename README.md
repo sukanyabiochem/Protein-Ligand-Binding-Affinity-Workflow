@@ -1,5 +1,5 @@
 # Protein Ligand Binding Affinity Prediction #
-This reposatory contains a ligand-Protein Binding affinity prediction uisng Autodoc, molecular dynamics (GROMACS), MM/PBSA prediction, Force-field (OPLSA) file generation, Predict the binding using a neural network algorithm  
+This repository contains a ligand-Protein Binding affinity prediction uisng Autodoc, molecular dynamics (GROMACS), MM/PBSA prediction, Force-field (OPLSA) file generation, Predict the binding using a neural network algorithm  
 
 ## create a conda enviorment for Autodoc ##
 1. conda create -n vina python=3.10
