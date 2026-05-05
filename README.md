@@ -17,7 +17,7 @@ vina --help
 
 ##AUTODOCK
 #split the 34 ligand from one file into different##
-obabel 34_ligand_convert.pdb -O ligand_.pdb -m
+1. obabel 34_ligand_convert.pdb -O ligand_.pdb -m
 
 ## check their str in VMD ##
 vmd ligand_1.pdb
