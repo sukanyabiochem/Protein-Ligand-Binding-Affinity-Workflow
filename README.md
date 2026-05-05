@@ -14,6 +14,10 @@ vina --help
 1. conda install -c conda-forge openbabel
 2. conda install -c conda-forge meeko
 
+## Prepare a library of Ligands ##
+The PDB file Processed in Openbabel:
+1. Download the PDB files from the ZINC Database.  
+
 
 ##AUTODOCK
 #split the 34 ligand from one file into different##
