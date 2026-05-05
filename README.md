@@ -31,8 +31,9 @@ obabel ligand_1.pdb -O ligand_1.mol2 -h
 vmd ligand_1.mol2
 
 ## Convert the PDB --> mol2 & prepare the pdbqt file for the all 34 ligands ## 
-##vi bash_script.sh 
-bash bash_script.sh
+##vi bash_script.sh
+
+1. bash bash_script.sh
 
 ## create the directory ##
 mkdir output
