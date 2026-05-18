@@ -16,7 +16,8 @@ vina --help
 
 ## Prepare a library of Ligands ##
 The PDB file Processed in Openbabel:
-1. Download the PDB files from the [ZINC Database](https://zinc.docking.org/).  
+1. Download the PDB files from the [ZINC Database](https://zinc.docking.org/).
+2. Other database source used in this work [PubChem](https://pubchem.ncbi.nlm.nih.gov/) & [RCSB PDB](https://rcsb.org/)
 
 
 ##AUTODOCK
