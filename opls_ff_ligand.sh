@@ -1,6 +1,6 @@
 ## automatic python command line to download ITP file of OPLS force-field from Ligpargen Server ##
 
-for i in {1..2}
+for i in {1..34}
 do	
 python3 final_python/ligpargen.py -i ligand_${i}.pdb -o ligpergen_${i} --only prm,rtf,itp,gro,zip
 done
