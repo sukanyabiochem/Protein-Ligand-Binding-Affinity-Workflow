@@ -73,3 +73,6 @@ vina  --ligand ligand_1.pdbqt --maps Protein_receptor --scoring ad4 --exhaustive
 1. sudo apt install imagemagick
 2. convert -delay 5 -loop 0 frames/frame*.png animation.gif
 3. convert -delay 10 frames/frame*.png animation.gif
+
+## download all the force field parameter from ligpargen server for all the ligands ##
+python ligpargen.py 
