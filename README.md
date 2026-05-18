@@ -293,7 +293,6 @@ convert -delay 10 frames/frame*.png animation.gif
 │   ├── protein_ligand1_ad4_out.pdbqt
 │   ├── protein_ligand2_ad4_out.pdbqt
 │   └── ...
-├── frames/
 ├── animation.gif
 └── README.md
 ```
