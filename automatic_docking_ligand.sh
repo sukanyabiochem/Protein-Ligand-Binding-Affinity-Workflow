@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ## Prepare the pdbqt file for the Protein ##
-mk_prepare_receptor.py -i FVIIa.pdb -o protein_receptor -p -v -g --box_size 50 50 50 --box_center 23.768259048461914 16.592430114746094 12.018509864807129
+mk_prepare_receptor.py -i protein.pdb -o protein_receptor -p -v -g --box_size 50 50 50 --box_center 23.768259048461914 16.592430114746094 12.018509864807129
 
 ## creating the map file ##
 autogrid4 -p protein_receptor.gpf -l protein_receptor.glg
