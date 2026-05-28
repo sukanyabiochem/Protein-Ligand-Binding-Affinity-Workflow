@@ -1,6 +1,6 @@
-## combine the FVIIa and the drug molecules files ##
+## combine the Protein and the drug molecules files ##
 
-# convert the download GRO files of ligand to PDB format #
+# convert the downloaded GRO files of ligand to PDB format #
 
 ##for i in {4..10}
 ##do
@@ -14,7 +14,7 @@ for i in 4
 do	
 mkdir -p P_ligand_${i}
 cp -r P_ligand_2/input-file P_ligand_${i}
-cp sub1.sbatch P_ligand_${i} 
+##cp sub1.sbatch P_ligand_${i} 
 cp Protein/topol.top Protein/posre.itp P_ligand_${i}
 gmx editconf -f Protein/FVIIa_updated.gro -o Protein/FVIIa_updated.pdb
 cat Protein/FVIIa_updated.pdb ligand/ligpargen_${i}/ligand_${i}.pdb > P_ligand_${i}/Pro_Lig_${i}.pdb
@@ -41,22 +41,22 @@ cat > P_ligand_${i}/sub1.sh <<EOF
 
     # Step 1: Energy minimization
 gmx grompp -f input-file/minim.mdp -c P_Lig_${i}_ions.gro -r P_Lig_${i}_ions.gro -p topol.top -n group.ndx -o equil1.tpr -maxwarn 1 
-gmx mdrun -deffnm equil1 -ntmpi 30
+gmx mdrun -deffnm equil1 -ntmpi 1 -ntomp 12
 
 gmx grompp -f input-file/nvt.mdp -c equil1.gro -r equil1.gro -p topol.top -n group.ndx -o equil2.tpr -maxwarn 1
-gmx mdrun -deffnm equil2 -ntmpi 1
+gmx mdrun -deffnm equil2 -ntmpi 1 -ntomp 12
 
 gmx grompp -f input-file/npt.mdp -c equil2.gro -r equil2.gro -t equil2.cpt -p topol.top -n group.ndx -o equil3.tpr -maxwarn 1
-gmx mdrun -deffnm equil3 -ntmpi 1
+gmx mdrun -deffnm equil3 -ntmpi 1 -ntomp 12
 
 gmx grompp -f input-file/equil4.mdp -c equil3.gro  -t equil3.cpt -p topol.top -n group.ndx -o equil4.tpr
-gmx mdrun -deffnm equil4 -ntmpi 1
+gmx mdrun -deffnm equil4 -ntmpi 1 -ntomp 12
 
 gmx grompp -f input-file/equil5.mdp -c equil4.gro -t equil4.cpt -p topol.top -n group.ndx -o equil5.tpr
-gmx mdrun -deffnm equil5 -ntmpi 1
+gmx mdrun -deffnm equil5 -ntmpi 1 -ntomp 12
 
 gmx grompp -f input-file/equil6.mdp -c equil5.gro -t equil5.cpt -p topol.top -n group.ndx -o equil6.tpr
-gmx mdrun -deffnm equil6 -ntmpi 1
+gmx mdrun -deffnm equil6 -ntmpi 1 -ntomp 12
 EOF
 
 
