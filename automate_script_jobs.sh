@@ -10,7 +10,7 @@
 ##        gmx editconf -f "$grofile" -o "$outfile"
 ##done
 
-for i in 4
+for i in 1 2 
 do	
 mkdir -p P_ligand_${i}
 cp -r P_ligand_2/input-file P_ligand_${i}
