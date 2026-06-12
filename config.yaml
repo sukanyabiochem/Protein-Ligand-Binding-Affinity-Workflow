@@ -1,0 +1,65 @@
+input:
+  file: "data/input/library.csv"
+  format: "csv"
+  id_column: "Compound_CID"
+  smiles_column: "SMILES"
+
+processing:
+  chunk_size: 2000     # 10,000 molecules -> 5 chunks
+  n_workers: 4         # of 8 available cores
+  output_dir: "data/intermediate"
+
+# Stage 2: Lipinski + Veber (Discovery Studio–like defaults)
+filters:
+  max_mw: 500
+  max_logp: 5
+  max_hbd: 5
+  max_hba: 10
+  max_rotatable_bonds: 10
+  min_tpsa: 20
+  max_tpsa: 140
+  max_heavy_atoms: 50
+  exclude_pains: true
+  exclude_brenk: true
+
+# Stage 3: ADMET rule thresholds (tune to match your prior DS/Glide criteria)
+admet:
+  min_logp: -0.5
+  max_logp: 5.0
+  min_tpsa: 40                        # oral absorption proxy
+  max_tpsa: 120
+  max_mw: 450
+  max_hbd: 5
+  max_hba: 10
+  max_rotatable_bonds: 8
+  min_qed: 0.3                        # drug-likeness score
+  max_aromatic_rings: 4
+
+# Stage 4: QSAR scoring (model trained via train_qsar.py)
+qsar:
+  model_path: "models/qsar_model.joblib"
+  min_probability: 0.6                # keep molecules above this score
+  top_n: 500                          # cap before docking
+
+# Stage 5 + bootstrap docking: AutoDock Vina settings
+docking:
+  receptor: "data/receptor.pdbqt"     # TODO: prepare from your target protein (see PROTOCOL.md)
+  # Binding pocket box -- TODO: replace with real coordinates for your target.
+  # (e.g. centroid of a co-crystallized/reference ligand in the binding site)
+  center_x: 0
+  center_y: 0
+  center_z: 0
+  size_x: 20
+  size_y: 20
+  size_z: 20
+  exhaustiveness: 8
+  top_n: 100                          # dock only top QSAR hits
+  final_shortlist: 34
+
+# Bootstrap step: dock a small random sample of Stage 3 output to generate
+# labeled actives/inactives for training the QSAR model (see PROTOCOL.md)
+bootstrap:
+  sample_size: 300                    # how many Stage 3 molecules to dock
+  active_pct: 10                      # best X% (most negative vina_score) -> actives
+  inactive_pct: 50                    # worst Y% (least negative vina_score) -> inactives
+  seed: 42
