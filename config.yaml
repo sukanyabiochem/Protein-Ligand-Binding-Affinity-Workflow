@@ -34,32 +34,3 @@ admet:
   max_rotatable_bonds: 8
   min_qed: 0.3                        # drug-likeness score
   max_aromatic_rings: 4
-
-# Stage 4: QSAR scoring (model trained via train_qsar.py)
-qsar:
-  model_path: "models/qsar_model.joblib"
-  min_probability: 0.6                # keep molecules above this score
-  top_n: 500                          # cap before docking
-
-# Stage 5 + bootstrap docking: AutoDock Vina settings
-docking:
-  receptor: "data/receptor.pdbqt"     # TODO: prepare from your target protein (see PROTOCOL.md)
-  # Binding pocket box -- TODO: replace with real coordinates for your target.
-  # (e.g. centroid of a co-crystallized/reference ligand in the binding site)
-  center_x: 0
-  center_y: 0
-  center_z: 0
-  size_x: 20
-  size_y: 20
-  size_z: 20
-  exhaustiveness: 8
-  top_n: 100                          # dock only top QSAR hits
-  final_shortlist: 34
-
-# Bootstrap step: dock a small random sample of Stage 3 output to generate
-# labeled actives/inactives for training the QSAR model (see PROTOCOL.md)
-bootstrap:
-  sample_size: 300                    # how many Stage 3 molecules to dock
-  active_pct: 10                      # best X% (most negative vina_score) -> actives
-  inactive_pct: 50                    # worst Y% (least negative vina_score) -> inactives
-  seed: 42
