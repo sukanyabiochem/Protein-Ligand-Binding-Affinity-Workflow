@@ -1,277 +1,228 @@
-# Automated Protein–Ligand Docking and MD Simulation Pipeline
-
-This repository contains an automated workflow for:
-
-- Protein–ligand docking using AutoDock Vina
-- Ligand preparation and format conversion
-- OPLS force-field generation for GROMACS
-- Molecular dynamics (MD) simulation setup
-- PyMOL movie generation
-- GIF animation creation
-
-The workflow supports batch processing of multiple ligands for high-throughput computational studies.
+The idea: start from a large compound library (thousands–millions of
+molecules), cheaply filter it down to a small, drug-like,
+structurally-clean shortlist (Stages 1–3), then run the
+compute-intensive docking + MD analysis (Stages 4–8) only on that
+shortlist.
 
 ---
 
-# Project Workflow
+## Workflow Stages
 
-```text
-Ligand Preparation
-        ↓
-PDB → MOL2 → PDBQT Conversion
-        ↓
-AutoDock Vina Docking
-        ↓
-Docked Complex Generation
-        ↓
-LigParGen OPLS Parameter Generation
-        ↓
-GROMACS MD Simulation Setup
-        ↓
-PyMOL Visualization & Movie Generation
+The full process follows this sequence:
+
+```
+Stage 1: Standardize & deduplicate SMILES
+   |
+Stage 2: Lipinski/Veber + PAINS/BRENK structural filters
+   |
+Stage 3: ADMET rule-based filtering
+   |
+Stage 4: Ligand preparation & format conversion (PDB -> MOL2 -> PDBQT)
+   |
+Stage 5: Protein-ligand docking (AutoDock Vina)
+   |
+Stage 6: Complex generation
+   |
+Stage 7: OPLS-AA force-field parameter generation (LigParGen, for GROMACS)
+   |
+Stage 8: GROMACS MD simulation setup
+   |
+Stage 9: PyMOL visualization & animation generation
 ```
 
 ---
 
-# Installation
+### Stage 1: Standardize & Deduplicate
 
-## Create a Conda Environment for AutoDock Vina
+**Script:** `stage1_standardize.py`
+
+- Reads the raw compound library (`data/input/library.csv`).
+- Canonicalizes every SMILES string with RDKit and discards molecules
+  that fail to parse/sanitize.
+- Removes duplicate molecules (by canonical SMILES), both within and
+  across processing chunks.
+
+**Output:** `data/intermediate/stage1/all_standardized.parquet`
 
 ```bash
-conda create -n vina python=3.10
+python stage1_standardize.py --config config.yaml
+```
+
+---
+
+### Stage 2: Lipinski/Veber + PAINS/BRENK Filters
+
+**Script:** `stage2_filters.py`
+
+- Computes 2D descriptors (MW, LogP, HBD, HBA, TPSA, rotatable bonds,
+  heavy atoms, aromatic rings, QED, etc.) for every Stage 1 molecule.
+- Rejects molecules violating **Lipinski's Rule of Five** /
+  **Veber's rules** (drug-likeness / oral bioavailability proxies).
+- Rejects molecules matching **PAINS** (assay interference) or
+  **BRENK** (reactive/unstable/toxic) structural alert patterns.
+
+**Output:** `data/intermediate/stage2/filtered.parquet`
+
+```bash
+python stage2_filters.py --config config.yaml
+```
+
+---
+
+### Stage 3: ADMET Rule-Based Filtering
+
+**Script:** `stage3_admet.py`
+
+- Applies a second, tighter set of ADMET (Absorption, Distribution,
+  Metabolism, Excretion, Toxicity) property thresholds to the Stage 2
+  survivors, re-using their already-computed descriptors.
+- Requires **all** conditions (LogP/TPSA range, MW, HBD, HBA,
+  rotatable bonds, QED minimum, aromatic ring count) to pass
+  simultaneously.
+
+**Output:** `data/intermediate/stage3/admet_passed.parquet`
+
+```bash
+python stage3_admet.py --config config.yaml
+```
+
+> Optional: use `bootstrap_sample_dock.py` + `label_qsar_set.py` +
+> `train_qsar.py` + `stage4_qsar.py` to further rank/shortlist the
+> Stage 3 output with a QSAR model before moving on to Stage 4 below
+> (see `PROTOCOL.md`).
+
+---
+
+### Stage 4: Ligand Preparation & Format Conversion
+
+**Script:** `ligand_format_pdbqt.sh`
+*(from Protein-Ligand-Binding-Affinity-Workflow)*
+
+- Takes the shortlisted ligands from Stage 3 (or the QSAR/docking
+  shortlist) and splits/converts them through the format chain
+  **PDB → MOL2 → PDBQT**, preparing each ligand for AutoDock Vina.
+
+---
+
+### Stage 5: Protein–Ligand Docking (AutoDock Vina)
+
+**Script:** `automatic_docking_ligand.sh`
+*(from Protein-Ligand-Binding-Affinity-Workflow)*
+
+- Prepares the receptor (protein target) and docking grid box.
+- Batch-docks every prepared ligand (PDBQT) from Stage 4 against the
+  receptor using AutoDock Vina.
+- Produces a binding-affinity score (kcal/mol) per ligand pose.
+
+---
+
+### Stage 6: Complex Generation
+
+- Combines the best-scoring docked ligand pose(s) with the receptor
+  structure to form protein–ligand complex files, used as the starting
+  structures for force-field parameterization and MD simulation.
+
+---
+
+### Stage 7: OPLS-AA Force-Field Parameter Generation
+
+**Script:** `opls_ff_ligand.sh` (LigParGen)
+*(from Protein-Ligand-Binding-Affinity-Workflow)*
+
+- Submits each docked ligand to the **LigParGen** server (or local
+  LigParGen tooling) to generate OPLS-AA force-field parameters
+  required by GROMACS.
+- Supports single-ligand parameterization, configurable output
+  formats, charge models for charged molecules, and preview-only runs.
+
+---
+
+### Stage 8: GROMACS MD Simulation Setup
+
+- Combines the protein–ligand complex (Stage 6) with the OPLS-AA
+  ligand parameters (Stage 7) to assemble a solvated, ion-balanced
+  simulation system.
+- Runs energy minimization, equilibration, and production molecular
+  dynamics in GROMACS.
+
+---
+
+### Stage 9: PyMOL Visualization & Animation
+
+- PyMOL renders trajectory frames from the MD run (recommended
+  800×600 resolution).
+- ImageMagick's `convert` stitches the frames into a GIF animation
+  (configurable frame delay).
+
+---
+
+## Installation Requirements
+
+### Cheminformatics environment (Stages 1–3)
+```bash
+conda create -n molscreen python=3.11 -y
+conda activate molscreen
+conda install -c conda-forge rdkit pandas numpy pyarrow pyyaml -y
+```
+
+### Docking / MD environment (Stages 4–9)
+```bash
+conda create -n vina python=3.10 -y
 conda activate vina
+conda config --add channels conda-forge
+conda install -c conda-forge vina numpy boost-cpp sphinx -y
+conda install -c conda-forge openbabel meeko -y
 ```
-
-## Configure Conda Channels
-
-```bash
-conda config --env --add channels conda-forge
-```
-
-## Install AutoDock Vina
-
-```bash
-conda install -c conda-forge numpy swig boost-cpp libboost sphinx sphinx_rtd_theme
-conda install -c conda-forge vina
-```
-
-## Check Installation
-
-```bash
-vina --help
-```
+Also required: **PyMOL**, **GROMACS**, and **ImageMagick**.
 
 ---
 
-# Install Additional Packages
-
-## Open Babel
-
-Used for ligand format conversion.
+## Execution Steps Summary
 
 ```bash
-conda install -c conda-forge openbabel
-```
+# Stages 1-3: cheminformatics triage (this repo)
+python stage1_standardize.py --config config.yaml
+python stage2_filters.py --config config.yaml
+python stage3_admet.py --config config.yaml
 
-## Meeko
+# (optional) Stages 4 (QSAR bootstrap) -- see PROTOCOL.md
 
-Used for generating PDBQT files.
-
-```bash
-conda install -c conda-forge meeko
-```
-
----
-
-## Prepare a library of Ligands ##
-The PDB file Processed in Openbabel:
-1. Download the PDB files from the [ZINC Database](https://zinc.docking.org/).
-2. Other database source used in this work [PubChem](https://pubchem.ncbi.nlm.nih.gov/) & [RCSB PDB](https://rcsb.org/)
-
----
-# AutoDock Workflow
-
----
-
-## Step 1 — Ligand Preparation
-
-Split multiple ligands into separate files and convert formats.
-
-Run:
-
-```bash
+# Stage 4: ligand preparation & format conversion
 bash ligand_format_pdbqt.sh
-```
 
-This script performs:
-
-- Ligand splitting
-- PDB → MOL2 conversion
-- MOL2 → PDBQT conversion
-
----
-
-## Step 2 — Run AutoDock Vina Docking
-
-Run automated docking for all ligands:
-
-```bash
+# Stage 5: docking
 bash automatic_docking_ligand.sh
-```
 
-This script performs:
+# Stage 6: complex generation (output of Stage 5 + receptor)
 
-- Receptor preparation
-- Grid generation
-- Batch docking using AutoDock Vina
-- Docked complex generation
-
----
-
-# GROMACS MD Simulation Workflow
-
----
-
-## Generate OPLS Force-Field Parameters
-
-Prepare ligand topology and parameter files for GROMACS.
-
-The `ligpargen.py` script requires several Python libraries for:
-
-- Web requests
-- HTML parsing
-- Automated browser interaction
-- Download management
-
-# Python Package Dependencies
-
-| Package | Purpose |
-|---|---|
-| `requests` | HTTP requests and file downloads |
-| `beautifulsoup4` | HTML parsing and response extraction |
-| `certifi` | SSL certificate validation |
-
-Install dependencies:
-
-```bash
-conda install -c conda-forge mechanize requests beautifulsoup4 html5lib
-```
-
-
-Run:
-
-```bash
+# Stage 7: OPLS-AA parameters
 bash opls_ff_ligand.sh
-```
 
-The script obtains OPLS-AA force-field parameters from the LigParGen server.
+# Stage 8: GROMACS MD setup & run (gmx commands using Stage 6 + Stage 7 outputs)
 
----
-
-# LigParGen Python Workflow
-
-Examples for generating ligand parameters.
-
----
-
-## Generate OPLS Parameters for One Ligand
-
-```bash
-python ligpargen.py -i ligand_1.pdb -o ligpargen_output
+# Stage 9: visualization
+pymol -c render_trajectory.pml
+convert -delay 10 -loop 0 frame_*.png trajectory.gif
 ```
 
 ---
 
-## Generate Only Specific File Types
+## Prerequisites
 
-```bash
-python ligpargen.py \
-    -i ligand_1.pdb \
-    -o ligpargen_output \
-    --only prm,rtf,itp,gro,zip
-```
+- Python 3.10/3.11, RDKit, AutoDock Vina, Open Babel, Meeko, PyMOL,
+  GROMACS, ImageMagick.
+- A prepared receptor structure for your target protein.
 
----
+## Important Notes
 
-## Generate Parameters for Charged Molecules
-
-```bash
-python ligpargen.py \
-    -i ligand_1.pdb \
-    --charge-model cm1a \
-    --charge -1
-```
-
----
-
-## List Download Targets Without Saving
-
-```bash
-python ligpargen.py -i ligand_1.pdb --no-download
-```
-
----
-
-# PyMOL Movie Generation
-
-Generate movies for protein–ligand complexes.
-
----
-
-## Create Frame Directory in PyMOL
-
-```python
-import os
-os.makedirs("frames", exist_ok=True)
-```
-
----
-
-## Generate Frames from Loaded Trajectory
-
-```python
-mplay
-png frame, width=800, height=600, dpi=300, ray=1
-mpng frames/frame
-```
-
----
-
-## Higher Quality Rendering
-
-```python
-set ray_trace_frames, 1
-mpng frames/frame
-```
-
----
-
-# Convert PNG Frames to GIF Animation
-
-## Install ImageMagick
-
-### Ubuntu/Debian
-
-```bash
-sudo apt update
-sudo apt install imagemagick
-```
-
----
-
-## Create GIF Animation
-
-```bash
-convert -delay 5 -loop 0 frames/frame*.png animation.gif
-```
-
-Alternative slower animation:
-
-```bash
-convert -delay 10 frames/frame*.png animation.gif
-```
-
----
+- **Verify docking box coordinates** (`docking.center_x/y/z`,
+  `docking.size_x/y/z` in `config.yaml`) against your target's actual
+  binding pocket before any production docking runs (Stage 5).
+- **Validate OPLS-AA parameters** (Stage 7) before launching MD
+  simulations (Stage 8).
+- Stages 1–3 are designed for **large libraries** (thousands–millions
+  of compounds); Stages 4–9 are designed for a **small shortlist**
+  (tens of compounds) due to their computational cost.
 
 # Directory Structure
 
