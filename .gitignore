@@ -1,0 +1,9 @@
+data/intermediate/
+data/output/
+models/
+*.swp
+*.swo
+*~
+__pycache__/
+*.pyc
+.DS_Store

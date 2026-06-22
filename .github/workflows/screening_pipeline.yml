@@ -1,0 +1,467 @@
+##############################################################################
+# GitHub Actions CI/CD -- Virtual Screening Pipeline
+#
+# Trigger: push/PR to main, or manual dispatch.
+#
+# The pipeline is split into jobs that mirror the screening stages.
+# Each job uploads its output as an artifact so the next job can pick up
+# where the previous one left off.  This gives per-stage visibility,
+# caching, and the ability to re-run only the failed stage.
+#
+# Two environment strategies are provided (toggle via the 'env' input):
+#   conda  -- installs everything from environment.yml  (default)
+#   docker -- uses a pre-built image from GitHub Container Registry
+##############################################################################
+
+name: Virtual Screening Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment strategy"
+        required: false
+        default: "conda"
+        type: choice
+        options:
+          - conda
+          - docker
+      skip_docking:
+        description: "Skip docking stages (faster CI for filter/QSAR-only changes)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CONDA_ENV: vscreen
+  CONFIG: config.yaml
+
+# ───────────────────────────────────────────────────────────────────────────
+# Stage 1 – Standardize & deduplicate
+# ───────────────────────────────────────────────────────────────────────────
+jobs:
+  stage1-standardize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Run Stage 1
+        shell: bash -el {0}
+        run: python stage1_standardize.py --config $CONFIG
+
+      - name: Upload Stage 1 output
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-output
+          path: data/intermediate/stage1/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 2 – Lipinski + PAINS/BRENK
+  # ─────────────────────────────────────────────────────────────────────────
+  stage2-filters:
+    needs: stage1-standardize
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download Stage 1 output
+        uses: actions/download-artifact@v4
+        with:
+          name: stage1-output
+          path: data/intermediate/stage1/
+
+      - name: Run Stage 2
+        shell: bash -el {0}
+        run: python stage2_filters.py --config $CONFIG
+
+      - name: Upload Stage 2 output
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-output
+          path: data/intermediate/stage2/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 3 – ADMET filters
+  # ─────────────────────────────────────────────────────────────────────────
+  stage3-admet:
+    needs: stage2-filters
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download Stage 2 output
+        uses: actions/download-artifact@v4
+        with:
+          name: stage2-output
+          path: data/intermediate/stage2/
+
+      - name: Run Stage 3
+        shell: bash -el {0}
+        run: python stage3_admet.py --config $CONFIG
+
+      - name: Upload Stage 3 output
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-output
+          path: data/intermediate/stage3/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4a – Bootstrap sample docking (needs vina + obabel)
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4a-bootstrap-dock:
+    needs: stage3-admet
+    if: ${{ !inputs.skip_docking }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Verify docking tools
+        shell: bash -el {0}
+        run: |
+          vina --version
+          obabel -V
+
+      - name: Download Stage 3 output
+        uses: actions/download-artifact@v4
+        with:
+          name: stage3-output
+          path: data/intermediate/stage3/
+
+      - name: Run bootstrap docking
+        shell: bash -el {0}
+        run: python stage4a_bootstrap_sample_dock.py --config $CONFIG
+
+      - name: Upload bootstrap output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-output
+          path: data/intermediate/bootstrap/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4b – Label actives / inactives
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4b-label:
+    needs: stage4a-bootstrap-dock
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download bootstrap output
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-output
+          path: data/intermediate/bootstrap/
+
+      - name: Run labeling
+        shell: bash -el {0}
+        run: python stage4b_label_qsar_set.py --config $CONFIG
+
+      - name: Upload labeled sets
+        uses: actions/upload-artifact@v4
+        with:
+          name: labeled-sets
+          path: data/input/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4c – Train QSAR model
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4c-train-qsar:
+    needs: stage4b-label
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download labeled sets
+        uses: actions/download-artifact@v4
+        with:
+          name: labeled-sets
+          path: data/input/
+
+      - name: Train QSAR model
+        shell: bash -el {0}
+        run: |
+          python stage4c_train_qsar.py \
+            --actives data/input/actives.csv \
+            --inactives data/input/inactives.csv \
+            --output models/qsar_model.joblib
+
+      - name: Upload trained model
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsar-model
+          path: models/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4ci – QSAR diagnostic plots  (parallel with 4d)
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4ci-qsar-plots:
+    needs: stage4c-train-qsar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download labeled sets + model
+        uses: actions/download-artifact@v4
+        with:
+          name: labeled-sets
+          path: data/input/
+      - uses: actions/download-artifact@v4
+        with:
+          name: qsar-model
+          path: models/
+
+      - name: Generate QSAR plots
+        shell: bash -el {0}
+        run: |
+          python stage4ci_plot_qsar_results.py \
+            --actives data/input/actives.csv \
+            --inactives data/input/inactives.csv \
+            --model models/qsar_model.joblib \
+            --outdir results/qsar_plots
+
+      - name: Upload QSAR plots
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsar-plots
+          path: results/qsar_plots/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4d – QSAR scoring  (parallel with 4ci)
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4d-qsar-score:
+    needs: stage4c-train-qsar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download Stage 3 output + model
+        uses: actions/download-artifact@v4
+        with:
+          name: stage3-output
+          path: data/intermediate/stage3/
+      - uses: actions/download-artifact@v4
+        with:
+          name: qsar-model
+          path: models/
+
+      - name: Run QSAR scoring
+        shell: bash -el {0}
+        run: python stage4d_qsar.py --config $CONFIG
+
+      - name: Upload Stage 4 output
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-output
+          path: data/intermediate/stage4/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 4di – Pipeline filtering plots
+  # ─────────────────────────────────────────────────────────────────────────
+  stage4di-pipeline-plots:
+    needs: stage4d-qsar-score
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Download all stage outputs + model
+        uses: actions/download-artifact@v4
+        with:
+          name: stage1-output
+          path: data/intermediate/stage1/
+      - uses: actions/download-artifact@v4
+        with:
+          name: stage2-output
+          path: data/intermediate/stage2/
+      - uses: actions/download-artifact@v4
+        with:
+          name: stage3-output
+          path: data/intermediate/stage3/
+      - uses: actions/download-artifact@v4
+        with:
+          name: stage4-output
+          path: data/intermediate/stage4/
+      - uses: actions/download-artifact@v4
+        with:
+          name: qsar-model
+          path: models/
+
+      - name: Generate pipeline plots
+        shell: bash -el {0}
+        run: |
+          python stage4di_plot_filtering_pipeline.py \
+            --config $CONFIG \
+            --outdir results/filtering_plots
+
+      - name: Upload pipeline plots
+        uses: actions/upload-artifact@v4
+        with:
+          name: filtering-plots
+          path: results/filtering_plots/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Stage 5 – AutoDock Vina docking
+  # ─────────────────────────────────────────────────────────────────────────
+  stage5-docking:
+    needs: stage4d-qsar-score
+    if: ${{ !inputs.skip_docking }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: vscreen
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Verify docking tools
+        shell: bash -el {0}
+        run: |
+          vina --version
+          obabel -V
+
+      - name: Download Stage 4 output
+        uses: actions/download-artifact@v4
+        with:
+          name: stage4-output
+          path: data/intermediate/stage4/
+
+      - name: Run docking
+        shell: bash -el {0}
+        run: python stage5_docking.py --config $CONFIG
+
+      - name: Upload final results
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-shortlist
+          path: data/output/
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Summary – Collect all artifacts
+  # ─────────────────────────────────────────────────────────────────────────
+  collect-results:
+    needs:
+      - stage4ci-qsar-plots
+      - stage4di-pipeline-plots
+      - stage5-docking
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download all result artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results/
+          pattern: "{qsar-plots,filtering-plots,final-shortlist}"
+          merge-multiple: true
+
+      - name: Summary
+        run: |
+          echo "## Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f all-results/final_shortlist.csv ]; then
+            COUNT=$(wc -l < all-results/final_shortlist.csv)
+            echo "Final shortlist: **$((COUNT - 1)) molecules**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Docking was skipped or failed." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download artifacts from the Actions tab for plots and data." >> $GITHUB_STEP_SUMMARY
