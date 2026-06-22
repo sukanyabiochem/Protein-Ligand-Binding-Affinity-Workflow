@@ -373,6 +373,153 @@ python stage4di_plot_filtering_pipeline.py --config config.yaml
 python stage5_docking.py --config config.yaml
 ```
 
+## CI/CD Pipeline (GitHub Actions)
+
+This repository includes an automated CI/CD pipeline defined in `.github/workflows/screening_pipeline.yml`. It runs the entire screening workflow on GitHub's free cloud runners whenever code is pushed, a pull request is opened, or the pipeline is triggered manually.
+
+### Prerequisites for CI/CD
+
+Before the pipeline can run, these files must be present in the repository:
+
+```
+data/input/library.csv      # Compound library (Compound_CID + SMILES columns)
+data/receptor.pdbqt          # Prepared receptor (via Meeko mk_prepare_receptor.py)
+config.yaml                  # Pipeline config with correct binding pocket box values
+environment.yml              # Conda environment specification
+```
+
+### How the `.yml` Workflow File Works
+
+The workflow file (`.github/workflows/screening_pipeline.yml`) is a YAML file that tells GitHub **when** to run, **what** machine to use, and **which** commands to execute. Here is how the key sections map to the pipeline:
+
+```yaml
+name:           # Name shown in the GitHub Actions tab
+
+on:             # WHEN to run:
+  push:         #   - automatically on every push to main
+  pull_request: #   - automatically on PRs targeting main
+  workflow_dispatch: # - manually via the "Run workflow" button
+
+jobs:           # WHAT to run (one or more jobs):
+  stage1:
+    runs-on: ubuntu-latest   # GitHub spins up a fresh Ubuntu VM
+    needs: []                # no dependencies -- runs first
+    steps:
+      - uses: actions/checkout@v4           # download repo code onto the VM
+      - uses: conda-incubator/setup-miniconda@v3  # install conda + environment.yml
+      - run: python stage1_standardize.py   # run the actual stage
+      - uses: actions/upload-artifact@v4    # save output for the next job
+
+  stage2:
+    needs: stage1            # waits for stage1 to finish first
+    steps:
+      - uses: actions/download-artifact@v4  # download stage1's output
+      - run: python stage2_filters.py       # run stage 2
+      - uses: actions/upload-artifact@v4    # save output for stage3
+```
+
+| YAML keyword | What it does |
+|-------------|-------------|
+| `on:` | Defines the **trigger** -- when the workflow runs (push, PR, manual) |
+| `jobs:` | Defines one or more **jobs**, each gets its own fresh Linux VM |
+| `runs-on:` | Which machine to use (`ubuntu-latest` = free GitHub-hosted runner) |
+| `needs:` | **Dependency chain** -- "don't start until this job finishes" (this is what creates the stage ordering) |
+| `steps:` | A sequence of commands that run **top to bottom** within a job |
+| `uses:` | Runs a **pre-built action** (checkout code, install conda, upload/download files) |
+| `run:` | Runs a **shell command** -- this is where your `python stage*.py` calls happen |
+| `upload-artifact` / `download-artifact` | Passes files (parquet, models, plots) between jobs since each job starts on a clean machine |
+
+### Pipeline Job Flow
+
+Each stage is a separate job. The `needs:` keyword chains them in order. Jobs that share the same dependency run in parallel automatically.
+
+```
+ stage1-standardize          (~5 min)    Canonicalize & dedup
+        |
+ stage2-filters              (~5 min)    Lipinski + PAINS/BRENK
+        |
+ stage3-admet                (~2 min)    ADMET property filters
+        |
+ stage4a-bootstrap-dock      (~60 min)   Dock random 300 molecules
+        |
+ stage4b-label               (~1 min)    Split into actives/inactives
+        |
+ stage4c-train-qsar          (~5 min)    Train RandomForest model
+        |
+   ┌────┴────┐
+   |         |
+ stage4ci  stage4d-qsar-score             Run in PARALLEL (both need only stage4c)
+ (plots)     |
+             |
+          stage4di-pipeline-plots
+             |
+ stage5-docking              (~120 min)  AutoDock Vina
+             |
+ collect-results                         Summary + downloadable artifacts
+```
+
+### How to Trigger the Pipeline
+
+**Automatic:** Push to `main` or open a pull request -- the pipeline starts immediately.
+
+**Manual:**
+1. Go to the **Actions** tab in the GitHub repository
+2. Select **Virtual Screening Pipeline** from the left sidebar
+3. Click **Run workflow**
+
+### Viewing Results
+
+After a pipeline run completes:
+- **Artifacts:** click any completed job > scroll to **Artifacts** to download:
+  - `final-shortlist` -- the final ranked CSV of docked molecules
+  - `qsar-plots` -- ROC curves, PCA, confusion matrix, probability distributions
+  - `filtering-plots` -- pipeline funnel, score distribution, chemical space, dendrogram
+- **Summary:** the `collect-results` job writes a molecule count summary on the workflow run page
+- **Logs:** click any job name to see real-time logs with molecule counts and progress
+
+### One-Command Local Run
+
+To run the entire pipeline locally without GitHub Actions:
+
+```bash
+# 1. Create and activate the conda environment (one-time setup):
+conda env create -f environment.yml
+conda activate vscreen
+
+# 2. Run all stages with a single script:
+bash run_pipeline.sh
+```
+
+Or run each stage manually (see [Quick Start](#quick-start) above).
+
+### Speeding Up CI
+
+The conda environment install takes ~5-8 minutes per job. To reduce this, cache the environment so subsequent runs reuse it instead of reinstalling:
+
+```yaml
+# Add this step before "Set up Conda" in the workflow:
+- name: Cache conda environment
+  uses: actions/cache@v4
+  with:
+    path: /usr/share/miniconda/envs/vscreen
+    key: conda-${{ hashFiles('environment.yml') }}
+```
+
+This caches the installed conda environment keyed to the contents of `environment.yml`. If the file hasn't changed, the next run skips the install entirely (~5 min saved per job).
+
+### Estimated Runtime
+
+| Stage | Time (2-core GitHub runner) |
+|-------|---------------------------|
+| Conda env setup | ~5-8 min per job (skipped if cached) |
+| Stages 1-3 (filtering) | ~12 min total |
+| Stage 4a (bootstrap dock) | ~30-90 min |
+| Stage 4c-4d (QSAR train + score) | ~10 min |
+| Stage 5 (final docking) | ~60-180 min |
+| **Total** | **~2-5 hours** |
+
+---
+
 ## License
 
 This project is provided for academic and research use.
